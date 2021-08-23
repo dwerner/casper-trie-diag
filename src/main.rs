@@ -1,39 +1,30 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use lmdb::{Cursor, DatabaseFlags, Environment, EnvironmentFlags, Transaction};
 use structopt::StructOpt;
-
-use retrieve_state::offline::load_execution_engine;
-use casper_node::types::JsonBlock;
-use casper_node::crypto::hash::Digest;
-use casper_execution_engine::shared::newtypes::CorrelationId;
-use casper_types::bytesrepr::ToBytes;
-use reqwest::Client;
-
 
 #[derive(Debug, StructOpt)]
 struct Opts {
-
-    #[structopt(short="p", default_value="data.lmdb")]
+    #[structopt(short = "p", name = "Path to data.lmdb")]
     lmdb_path: PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-
-    let mut client = Client::new();
+fn main() -> Result<(), anyhow::Error> {
     let opts = Opts::from_args();
-    println!("Downloading highest block...");
-    let highest_block: JsonBlock = retrieve_state::get_block(&mut client, None)
-        .await?
-        .block
-        .unwrap();
-    let state_root_hash = highest_block.header.state_root_hash;
+    let env = Environment::new()
+        // Set the flag to manage our own directory like in the storage component.
+        .set_flags(EnvironmentFlags::NO_SUB_DIR)
+        .set_max_dbs(1)
+        .open(&opts.lmdb_path)?;
 
-    let (engine_state, _lmdb_environment) = load_execution_engine(&opts.lmdb_path, state_root_hash.into())?;
+    let db = env.create_db(Some("TRIE_STORE"), DatabaseFlags::empty())?;
 
+    let txn = env.begin_ro_txn()?;
+    let mut cursor = txn.open_ro_cursor(db)?;
     let mut largest_trie = 0;
-    while let Ok(Some(trie)) = engine_state.read_trie(CorrelationId::new(), state_root_hash.into())  {
-        let serialized_len = trie.serialized_length();
+
+    for (_key, value) in cursor.iter() {
+        let serialized_len = value.len();
         if largest_trie < serialized_len {
             println!("found new largest trie with len {}", serialized_len);
             largest_trie = serialized_len;
