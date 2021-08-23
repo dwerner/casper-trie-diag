@@ -1,0 +1,27 @@
+[package]
+name = "casper-trie-diag"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+casper-contract = { path = "../casper-node/smart_contracts/contract", default-features = false, features = ["std"] }
+casper-execution-engine = { path = "../casper-node/execution_engine", features = ["gens"] }
+casper-types = { path = "../casper-node/types", default-features = false, features = ["std"] }
+casper-node = { path = "../casper-node/node" }
+retrieve-state = { path = "../casper-node/utils/retrieve-state" }
+
+anyhow = "*"
+lmdb = "0.8.0"
+log = "0.4.8"
+hex="*"
+jsonrpc-lite = "*"
+reqwest = { version = "0.11.1", features = ["json"] }
+serde_json = "*"
+serde = "*"
+structopt = "0.3.22"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+version-sync = "0.9"
+walkdir = "2"
