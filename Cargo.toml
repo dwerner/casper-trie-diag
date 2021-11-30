@@ -8,11 +8,11 @@ edition = "2018"
 [dependencies]
 
 anyhow = "*"
-casper-node = { path = "../casper-node/node" }
-casper-types = { path = "../casper-node/types", features = ["std"] }
-casper-hashing = { path = "../casper-node/hashing" }
-casper-execution-engine = { path = "../casper-node/execution_engine" }
-retrieve-state = { path = "../casper-node/utils/retrieve-state" }
+casper-node = { path = "../retrieve-state-fanout/node" }
+casper-types = { path = "../retrieve-state-fanout/types", features = ["std"] }
+casper-hashing = { path = "../retrieve-state-fanout/hashing" }
+casper-execution-engine = { path = "../retrieve-state-fanout/execution_engine" }
+retrieve-state = { path = "../retrieve-state-fanout/utils/retrieve-state" }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 
 serde_json = "1" 
