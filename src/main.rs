@@ -78,12 +78,17 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut unvisited_nodes = vec![state_root];
         let mut deleted_era_info = 0;
         let mut new_root_hash = state_root.clone();
+        let mut lmdb_dir = opts.lmdb_path.clone();
+        lmdb_dir.pop();
         let (engine_state, _env) = storage::load_execution_engine(
-            opts.lmdb_path,
+            lmdb_dir,
             retrieve_state::DEFAULT_MAX_DB_SIZE,
             new_root_hash,
             true,
         )?;
+
+        let mut keys_to_delete = vec![];
+
         while let Some(digest) = unvisited_nodes.pop() {
             let bytes = txn
                 .get(db, &digest)
@@ -115,23 +120,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         // node -> get switch block and it's root -> get era-id
                         // for any newer -> hit stable key
                         // older -> use legacy
-
-                        match engine_state.delete_key(
-                            CorrelationId::new(),
-                            new_root_hash,
-                            &trie_key,
-                        ) {
-                            Ok(DeleteResult::Deleted(root)) => {
-                                deleted_era_info += 1;
-                                new_root_hash = root;
-                            }
-                            Ok(delete) => {
-                                panic!("failed to delete key {:?} - {:?}", trie_key, delete)
-                            }
-                            err => {
-                                panic!("failed to delete key {:?} - {:?}", trie_key, err)
-                            }
-                        }
+                        keys_to_delete.push(trie_key)
                     }
                 }
                 Trie::Node { pointer_block } => unvisited_nodes.append(
@@ -145,7 +134,23 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         record_count += 1;
 
-        println!("deleted {deleted_era_info} era info entries.");
+        for trie_key in keys_to_delete {
+            match engine_state.delete_key(CorrelationId::new(), new_root_hash, &trie_key) {
+                Ok(DeleteResult::Deleted(root)) => {
+                    deleted_era_info += 1;
+                    new_root_hash = root;
+                    println!("deleted era info {:?}", trie_key);
+                }
+                Ok(delete) => {
+                    panic!("failed to delete key {:?} - {:?}", trie_key, delete)
+                }
+                err => {
+                    panic!("failed to delete key {:?} - {:?}", trie_key, err)
+                }
+            }
+        }
+
+        println!("deleted {deleted_era_info} era info entries. ending root hash {new_root_hash}");
 
         writeln!(report_writer, "key_tag, count").unwrap();
 
