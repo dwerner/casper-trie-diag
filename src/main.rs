@@ -1,9 +1,12 @@
 use std::{collections::HashMap, fs::File, io::BufWriter, io::Write, path::PathBuf, time::Instant};
 
-use casper_execution_engine::storage::trie::Trie;
+use casper_execution_engine::{
+    shared::newtypes::CorrelationId, storage::trie::Trie, storage::trie_store::DeleteResult,
+};
 use casper_hashing::Digest;
 use casper_types::{bytesrepr::FromBytes, Key, StoredValue};
 use lmdb::{Cursor, DatabaseFlags, Environment, EnvironmentFlags, Transaction};
+use retrieve_state::storage;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -73,6 +76,14 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut report_writer = BufWriter::new(File::create(filename).unwrap());
 
         let mut unvisited_nodes = vec![state_root];
+        let mut deleted_era_info = 0;
+        let mut new_root_hash = state_root.clone();
+        let (engine_state, _env) = storage::load_execution_engine(
+            opts.lmdb_path,
+            retrieve_state::DEFAULT_MAX_DB_SIZE,
+            new_root_hash,
+            true,
+        )?;
         while let Some(digest) = unvisited_nodes.pop() {
             let bytes = txn
                 .get(db, &digest)
@@ -99,6 +110,29 @@ async fn main() -> Result<(), anyhow::Error> {
                         &mut trie_lengths,
                         byte_len,
                     );
+                    if let Key::EraInfo(_) = trie_key {
+                        // line in the sand with era where we had erainfo.
+                        // node -> get switch block and it's root -> get era-id
+                        // for any newer -> hit stable key
+                        // older -> use legacy
+
+                        match engine_state.delete_key(
+                            CorrelationId::new(),
+                            new_root_hash,
+                            &trie_key,
+                        ) {
+                            Ok(DeleteResult::Deleted(root)) => {
+                                deleted_era_info += 1;
+                                new_root_hash = root;
+                            }
+                            Ok(delete) => {
+                                panic!("failed to delete key {:?} - {:?}", trie_key, delete)
+                            }
+                            err => {
+                                panic!("failed to delete key {:?} - {:?}", trie_key, err)
+                            }
+                        }
+                    }
                 }
                 Trie::Node { pointer_block } => unvisited_nodes.append(
                     &mut pointer_block
@@ -110,6 +144,8 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         }
         record_count += 1;
+
+        println!("deleted {deleted_era_info} era info entries.");
 
         writeln!(report_writer, "key_tag, count").unwrap();
 
@@ -124,19 +160,20 @@ async fn main() -> Result<(), anyhow::Error> {
 
         writeln!(
             report_writer,
-            "key_tag, stored_value_tag, average_len, max_len"
+            "key_tag, stored_value_tag, average_len, max_len, total_len"
         )
         .unwrap();
         for ((key_tag, stored_value_tag), lengths) in trie_lengths {
             if lengths.is_empty() {
                 continue;
             }
-            let average_len: usize = lengths.iter().sum::<usize>() / lengths.len();
+            let total_len = lengths.iter().sum::<usize>();
+            let average_len: usize = total_len / lengths.len();
             let max_len: usize = *lengths.iter().max().unwrap();
             writeln!(
                 report_writer,
-                "\"{}\", \"{}\", {}, {}",
-                key_tag, stored_value_tag, average_len, max_len
+                "\"{}\", \"{}\", {}, {}, {}",
+                key_tag, stored_value_tag, average_len, max_len, total_len
             )
             .unwrap();
         }
